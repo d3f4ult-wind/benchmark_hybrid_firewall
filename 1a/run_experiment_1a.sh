@@ -150,12 +150,17 @@ start_attack() {
 # Dừng tấn công
 stop_attack() {
     log "[ATTACK] Đang dừng SYN Flood..."
+    # Kill bằng SIGKILL (-9) để chắc chắn, sau đó chờ 2s mới kiểm tra
+    ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
+        "$ATTACKER_SSH_USER@$ATTACKER_IP" \
+        "echo '$ATTACKER_SUDO_PASS' | sudo -S pkill -9 -f hping3 2>/dev/null; true" 2>/dev/null || true
+    sleep 2
     if ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
            "$ATTACKER_SSH_USER@$ATTACKER_IP" \
-           "echo '$ATTACKER_SUDO_PASS' | sudo -S pkill -f hping3; sleep 1; pgrep hping3 || echo STOPPED" 2>/dev/null | grep -q STOPPED; then
+           "pgrep -x hping3 > /dev/null 2>&1 && echo RUNNING || echo STOPPED" 2>/dev/null | grep -q STOPPED; then
         log "[ATTACK][OK] hping3 đã dừng trên Attacker VM."
     else
-        log "[ATTACK][WARN] Không xác nhận được hping3 đã dừng — kiểm tra thủ công."
+        log "[ATTACK][WARN] hping3 có thể vẫn đang chạy — kiểm tra thủ công nếu cần."
     fi
     rm -f /tmp/attack_pid.txt
 }
@@ -235,8 +240,30 @@ else
     MANUAL_ATTACK=true
 fi
 
+# ---------------------------------------------------------------------------
+# Dọn process thừa từ các lần chạy trước (QUAN TRỌNG!)
+# ---------------------------------------------------------------------------
+# Nếu watcher.py hoặc feedback_loop_iptables.py còn sống sót từ kịch bản khác,
+# chúng sẽ can thiệp vào kết quả (block IP trong phase mà không được phép).
+log "[CLEAN] Kiểm tra và dọn process thừa..."
+for proc in watcher.py feedback_loop_iptables.py; do
+    if pgrep -f "$proc" > /dev/null 2>&1; then
+        pkill -f "$proc" 2>/dev/null || true
+        sleep 1
+        log "[CLEAN][WARN] Đã kill process thừa: $proc — đây có thể gây nhiễm kết quả nếu chưa dọn!"
+    else
+        log "[CLEAN][OK] Không có process thừa: $proc"
+    fi
+done
+
 # Đặt XDP về transparent mode (không có rules) cho Phase 1 và 2
 reset_xdp_rules
+XDP_COUNT=$(curl -sf "$XDP_API_BASE/rules" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "?")
+log "[CLEAN] XDP rules hiện tại: $XDP_COUNT (phải là 0 trước khi bắt đầu)"
+if [[ "$XDP_COUNT" != "0" ]]; then
+    log "[CLEAN][ERROR] Còn $XDP_COUNT XDP rule sau khi reset! Dừng lại để tảnh nằn."
+    exit 1
+fi
 log ""
 
 # ---------------------------------------------------------------------------

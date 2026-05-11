@@ -45,16 +45,16 @@ Cấu trúc BPF Maps: `subnet_map` dùng `BPF_MAP_TYPE_LPM_TRIE` (tối đa 10.0
 
 ```
 [Attacker VM]                    [Firewall VM]                         [Victim VM]
- eth0: 10.10.1.2                  enp0s3: 10.10.1.1 (XDP attach)        eth0: 10.10.2.2
- ns_10: 10.10.1.10                enp0s8: 10.10.2.1                     nginx: port 80
+ eth0: 10.10.1.2                  enp0s8: 10.10.1.1 (XDP attach)        eth0: 10.10.2.2
+ ns_10: 10.10.1.10                enp0s9: 10.10.2.1                     nginx: port 80
  ns_11: 10.10.1.11                XDP Core API: 127.0.0.1:8080          worker_connections: 4096
- ns_50: 10.10.1.50 (legitimate)   Suricata (passive, enp0s3 only)       keepalive_timeout: 0
+ ns_50: 10.10.1.50 (legitimate)   Suricata (passive, enp0s8 only)       keepalive_timeout: 0
                                   Iptables/Nftables                     response: "Victim Server - Benchmark Target"
                                   Python Watcher / Feedback scripts
                                   ip_forward = 1
 ```
 
-Tên interface thực tế là `enp0s3` và `enp0s8`. Tất cả script đều có biến `IFACE` ở đầu file. XDP attach vào `enp0s3` — interface nhận traffic từ Attacker. Suricata chỉ lắng nghe `enp0s3`, không lắng nghe `enp0s8`.
+Tên interface thực tế là `enp0s8` và `enp0s9`. Tất cả script đều có biến `IFACE` ở đầu file. XDP attach vào `enp0s8` — interface nhận traffic từ Attacker. Suricata chỉ lắng nghe `enp0s8`, không lắng nghe `enp0s9`.
 
 **ns_50 (10.10.1.50) là legitimate user probe** — không bao giờ bị block trong bất kỳ kịch bản nào. Đây là điều kiện thành công bắt buộc.
 
@@ -129,7 +129,7 @@ sudo bash teardown_rules_1b.sh       # Dọn dẹp
 
 ### Suricata
 
-Chưa cài trên máy — `setup_rules_1b.sh` sẽ cài từ apt và ghi config tối giản vào `/etc/suricata/suricata.yaml` (backup gốc vào `.orig`). Config chỉ enable: af-packet trên `enp0s3`, EVE JSON output (chỉ alert), HTTP app-layer, và rule file của dự án.
+Chưa cài trên máy — `setup_rules_1b.sh` sẽ cài từ apt và ghi config tối giản vào `/etc/suricata/suricata.yaml` (backup gốc vào `.orig`). Config chỉ enable: af-packet trên `enp0s8`, EVE JSON output (chỉ alert), HTTP app-layer, và rule file của dự án.
 
 3 rule phát hiện Slow Loris: SID 9000001 (20 SYN trong 10s), SID 9000002 (HTTP partial header, payload <50 bytes, 10 lần trong 30s), SID 9000003 safety net (30 SYN trong 60s). Tất cả prefix `SLOWLORIS` trong msg để `watcher.py` dễ lọc.
 

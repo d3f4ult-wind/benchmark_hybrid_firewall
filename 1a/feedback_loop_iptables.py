@@ -98,11 +98,15 @@ running = True
 # Dict lưu IP đã xử lý và timestamp lần xử lý gần nhất
 # Format: { "10.10.1.2": 1234567890.123 }
 processed_ips: dict[str, float] = {}
+journald_proc = None  # tham chiếu tới subprocess journalctl — để terminate khi nhận signal
 
 
 def handle_signal(signum, frame):
-    global running
+    global running, journald_proc
     running = False
+    # Terminate journalctl subprocess ngay lập tức để giải phóng readline() khỏi trạng thái block
+    if journald_proc and journald_proc.poll() is None:
+        journald_proc.terminate()
     print("\n[feedback_loop] Nhận tín hiệu dừng...")
 
 
@@ -286,12 +290,13 @@ def tail_journald():
     Phù hợp khi hệ thống dùng systemd và không có /var/log/kern.log.
     Ubuntu 20.04+ mặc định dùng journald.
     """
+    global journald_proc
     log("[feedback_loop] Đọc kernel log từ journald (journalctl -kf)")
     log(f"[feedback_loop] Chờ Iptables LOG với prefix: '{IPTABLES_LOG_PREFIX}'")
 
     try:
         # journalctl -k = kernel messages, -f = follow (realtime), -n 0 = bỏ qua log cũ
-        proc = subprocess.Popen(
+        journald_proc = subprocess.Popen(
             ["journalctl", "-kf", "-n", "0", "--output=short"],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -299,14 +304,21 @@ def tail_journald():
             bufsize=1  # Line-buffered
         )
 
+        import select
         while running:
-            line = proc.stdout.readline()
-            if line:
-                process_log_line(line.rstrip())
-            else:
-                time.sleep(0.01)
+            # Dùng select với timeout 0.5s thay vì readline() blocking mãi
+            # Khi running = False và proc bị terminate, select sẽ trả về ngay
+            ready, _, _ = select.select([journald_proc.stdout], [], [], 0.5)
+            if ready:
+                line = journald_proc.stdout.readline()
+                if line:
+                    process_log_line(line.rstrip())
+                else:
+                    break  # EOF — proc đã kết thúc
 
-        proc.terminate()
+        if journald_proc.poll() is None:
+            journald_proc.terminate()
+            journald_proc.wait(timeout=3)
 
     except FileNotFoundError:
         log("[ERROR] Không tìm thấy journalctl. Thử dùng --log-file thay thế.")

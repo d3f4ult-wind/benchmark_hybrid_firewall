@@ -45,7 +45,7 @@ ATTACKER_USER="user"
 VICTIM_IP="10.10.2.2"
 NS50_IP="10.10.1.50"        # Legitimate user probe — không bao giờ bị block
 FAKE_ATTACKER_IP="1.180.1.1" # IP giả mạo trong dải GeoIP bị block (China Unicom)
-IFACE="enp0s3"
+IFACE="enp0s8"                  # Interface hướng về Attacker — XDP đã attach ở đây
 
 # Năm mức ruleset benchmark — có thể override bằng --levels
 RULESET_LEVELS=(100 500 1000 5000 10000)

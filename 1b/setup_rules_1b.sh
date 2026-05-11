@@ -10,7 +10,7 @@ set -euo pipefail
 # ─────────────────────────────────────────
 # BIẾN CẤU HÌNH — chỉnh ở đây nếu cần
 # ─────────────────────────────────────────
-IFACE="enp0s3"                    # Interface hướng về Attacker — XDP đã attach ở đây
+IFACE="enp0s8"                    # Interface hướng về Attacker — XDP đã attach ở đây
 RULES_DIR="/etc/suricata/rules"
 RULE_FILE="$RULES_DIR/slowloris.rules"
 SURICATA_CONF="/etc/suricata/suricata.yaml"
@@ -39,7 +39,7 @@ fi
 # Chiến lược: Chúng ta KHÔNG dùng suricata.yaml mặc định vì nó rất phức tạp
 # (hàng trăm dòng, nhiều rule set, nhiều output). Thay vào đó, ta override
 # chỉ những phần quan trọng:
-#   - Lắng nghe enp0s3 (mặt hướng Attacker)
+#   - Lắng nghe enp0s8 (mặt hướng Attacker)
 #   - Chỉ load rule file của mình
 #   - Output EVE JSON để watcher.py đọc
 #   - Tắt hầu hết output khác để giảm I/O overhead
@@ -86,7 +86,7 @@ default-rule-path: $RULES_DIR
 rule-files:
   - slowloris.rules
 
-# Cấu hình capture: lắng nghe enp0s3 — mặt nhìn về Attacker VM
+# Cấu hình capture: lắng nghe enp0s8 — mặt nhìn về Attacker VM
 # Suricata dùng af-packet (Linux native, hiệu năng tốt hơn pcap)
 af-packet:
   - interface: $IFACE

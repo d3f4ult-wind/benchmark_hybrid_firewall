@@ -24,8 +24,8 @@ set -e  # Dừng ngay nếu có lệnh nào lỗi
 # ---------------------------------------------------------------------------
 
 # Interface nhận traffic từ Attacker — SỬA LẠI ĐÚNG TÊN INTERFACE!
-IFACE_IN="enp0s3"          # Interface hướng về Attacker (10.10.1.x)
-IFACE_OUT="enp0s8"         # Interface hướng về Victim (10.10.2.x)
+IFACE_IN="enp0s8"          # Interface hướng về Attacker (10.10.1.x)
+IFACE_OUT="enp0s9"         # Interface hướng về Victim (10.10.2.x)
                             # Nếu máy mạnh hơn và dùng dedicated NIC: đổi tên cho đúng
 
 # Địa chỉ Victim (nginx)

@@ -8,8 +8,8 @@
 # =============================================================================
 set -euo pipefail
 
-IFACE_ATTACKER="enp0s3"       # Interface hướng về Attacker
-IFACE_VICTIM="enp0s8"         # Interface hướng về Victim
+IFACE_ATTACKER="enp0s8"       # Interface hướng về Attacker
+IFACE_VICTIM="enp0s9"         # Interface hướng về Victim
 ATTACKER_IP="10.10.1.2"
 VICTIM_IP="10.10.2.2"
 ATTACKER_USER="user"

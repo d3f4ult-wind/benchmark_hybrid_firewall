@@ -34,7 +34,7 @@ set -euo pipefail
 # ─────────────────────────────────────────
 ATTACKER_IP="10.10.1.2"          # eth0 của Attacker VM
 VICTIM_IP="10.10.2.2"            # nginx ở đây
-FIREWALL_IFACE="enp0s3"          # Interface hướng về Attacker
+FIREWALL_IFACE="enp0s8"          # Interface hướng về Attacker
 ATTACKER_USER="user"             # SSH user trên Attacker VM (điều chỉnh nếu khác)
 
 # Thời gian mỗi phase (giây). Override: ./run_experiment_1b.sh --duration=180

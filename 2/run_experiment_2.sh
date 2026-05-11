@@ -233,6 +233,26 @@ ssh -o ConnectTimeout=5 -o BatchMode=yes "${ATTACKER_USER}@${ATTACKER_IP}" \
     { log "[ERROR] Network namespace ns_50 không tồn tại trên Attacker VM (${ATTACKER_IP})!"; exit 1; }
 log "[OK] Tất cả điều kiện đã đủ."
 
+# Dọn process thừa từ các lần chạy trước — tránh nhiễm kết quả
+log "[CLEAN] Kiểm tra process thừa..."
+for proc in watcher.py feedback_loop_iptables.py monitor.py; do
+    if pgrep -f "$proc" > /dev/null 2>&1; then
+        pkill -f "$proc" 2>/dev/null || true; sleep 1
+        log "[CLEAN][WARN] Đã kill process thừa: $proc"
+    else
+        log "[CLEAN][OK] Không có process thừa: $proc"
+    fi
+done
+# Xóa XDP rules thừa
+XDP_C=$(curl -sf http://127.0.0.1:8080/rules 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else 0)" 2>/dev/null || echo 0)
+if [[ "$XDP_C" != "0" ]]; then
+    log "[CLEAN][WARN] Còn $XDP_C XDP rule — đang xóa..."
+    curl -sf http://127.0.0.1:8080/rules | python3 -c "import sys,json,urllib.request
+[urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8080/rules',json.dumps(r).encode(),{'Content-Type':'application/json'},'DELETE'),timeout=3) for r in (json.load(sys.stdin) or [])]
+" 2>/dev/null || true
+    log "[CLEAN] Xóa xong."
+fi
+
 # ─────────────────────────────────────────
 # SETUP
 # ─────────────────────────────────────────

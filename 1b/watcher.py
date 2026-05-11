@@ -17,6 +17,7 @@
 import argparse
 import json
 import os
+import signal
 import sys
 import time
 import urllib.request
@@ -160,7 +161,22 @@ def block_ip(ip: str, dry_run: bool, t_detected: float):
 # EVE JSON TAIL
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+# Flag toàn cục để dừng gracefully khi nhận SIGTERM hoặc Ctrl+C
+watcher_running = True
+
+
+def handle_stop_signal(signum, frame):
+    global watcher_running
+    watcher_running = False
+
+
+signal.signal(signal.SIGTERM, handle_stop_signal)
+signal.signal(signal.SIGINT,  handle_stop_signal)
+
+
 def is_slowloris_alert(event: dict) -> bool:
+
     """
     Kiểm tra một event từ EVE JSON có phải alert Slow Loris không.
     Chỉ xét event_type == "alert" và signature chứa keyword liên quan.
@@ -197,7 +213,7 @@ def tail_eve_log(path: str, dry_run: bool):
         f.seek(0, 2)
         log("[WATCHER] Đang chờ alert từ Suricata...")
 
-        while True:
+        while watcher_running:
             line = f.readline()
             if not line:
                 # Không có data mới, sleep ngắn rồi thử lại

@@ -32,10 +32,12 @@ set -euo pipefail
 # ─────────────────────────────────────────
 # BIẾN CẤU HÌNH
 # ─────────────────────────────────────────
-ATTACKER_IP="10.10.1.2"          # eth0 của Attacker VM
+ATTACKER_IP="10.10.1.2"          # eth0 của Attacker VM — chỉ dùng để SSH
 VICTIM_IP="10.10.2.2"            # nginx ở đây
 FIREWALL_IFACE="enp0s8"          # Interface hướng về Attacker
 ATTACKER_USER="kali"             # SSH user trên Attacker VM (điều chỉnh nếu khác)
+ATTACKER_NS="ns_11"              # Namespace tấn công — source IP 10.10.1.11
+ATTACKER_SUDO_PASS="kali"        # Mật khẩu sudo trên Attacker VM
 
 # Thời gian mỗi phase (giây). Override: ./run_experiment_1b.sh --duration=180
 DURATION_BASELINE=60
@@ -149,51 +151,60 @@ stop_monitor() {
 }
 
 start_slowloris() {
-    # Cố gắng trigger Slow Loris qua SSH đến Attacker VM
-    # Nếu SSH không setup, in hướng dẫn manual
-    log "Kích hoạt Slow Loris attack (${SLOWLORIS_SOCKETS} sockets, sleep=${SLOWLORIS_SLEEP}s)..."
-
-    if ssh -o ConnectTimeout=5 -o BatchMode=yes \
-            "${ATTACKER_USER}@${ATTACKER_IP}" \
-            "nohup slowloris ${SLOWLORIS_TARGET} --port 80 \
-             --socket-count ${SLOWLORIS_SOCKETS} \
-             --sleeptime ${SLOWLORIS_SLEEP} \
-             > /tmp/slowloris.log 2>&1 & echo \$!" \
-            > "$ATTACKER_PID_FILE" 2>/dev/null; then
-        log "[AUTO] Slow Loris đã khởi động trên Attacker VM (PID: $(cat "$ATTACKER_PID_FILE" 2>/dev/null || echo '?'))"
-    else
-        # SSH thất bại — chuyển sang manual mode
-        echo ""
-        echo "┌─────────────────────────────────────────────────────────┐"
-        echo "│  [MANUAL MODE] SSH đến Attacker VM không thành công.    │"
-        echo "│  Mở terminal riêng trên Attacker VM và chạy lệnh sau:   │"
-        echo "│                                                          │"
-        echo "│  slowloris $SLOWLORIS_TARGET --port 80 \\                │"
-        echo "│    --socket-count $SLOWLORIS_SOCKETS \\                  │"
-        echo "│    --sleeptime $SLOWLORIS_SLEEP                          │"
-        echo "│                                                          │"
-        echo "│  Sau khi lệnh trên đang chạy, nhấn Enter ở đây.         │"
-        echo "└─────────────────────────────────────────────────────────┘"
+    log "Kiểm tra SSH đến Attacker VM..."
+    if ! ssh -o ConnectTimeout=5 -o BatchMode=yes \
+            "${ATTACKER_USER}@${ATTACKER_IP}" "echo SSH_OK" 2>/dev/null | grep -q SSH_OK; then
+        log "[ERROR] Không SSH được đến ${ATTACKER_IP}!"
+        echo ""; echo "┌──────────────────────────────────────────────────────────┐"
+        echo "│  [MANUAL] Chạy lệnh sau trên Attacker VM:                   │"
+        echo "│  ip netns exec $ATTACKER_NS slowloris $SLOWLORIS_TARGET --port 80 \\│"
+        echo "│    --socket-count $SLOWLORIS_SOCKETS --sleeptime $SLOWLORIS_SLEEP │"
+        echo "│  Sau đó nhấn Enter ở đây.                                     │"
+        echo "└──────────────────────────────────────────────────────────┘"
         read -r -p ">> Nhấn Enter khi Slow Loris đã bắt đầu chạy: "
         log "[MANUAL] Tiếp tục theo xác nhận của người dùng."
+        return
     fi
+    log "[OK] SSH đến ${ATTACKER_IP} thành công."
+
+    # Kiểm tra namespace ns_11 tồn tại
+    if ! ssh -o ConnectTimeout=5 -o BatchMode=yes \
+            "${ATTACKER_USER}@${ATTACKER_IP}" \
+            "ip netns list | grep -q $ATTACKER_NS" 2>/dev/null; then
+        log "[ERROR] Namespace '$ATTACKER_NS' không tồn tại trên Attacker VM!"
+        log "        Tạo bằng: sudo ip netns add $ATTACKER_NS && ..."
+        return 1
+    fi
+    log "[OK] Namespace $ATTACKER_NS sẵn sàng. Kích hoạt Slow Loris (${SLOWLORIS_SOCKETS} sockets)..."
+
+    # ip netns exec cần sudo; slowloris chạy trong namespace để source IP = 10.10.1.11
+    SLOWLORIS_PID=$(ssh -o ConnectTimeout=5 -o BatchMode=yes \
+        "${ATTACKER_USER}@${ATTACKER_IP}" \
+        "echo '${ATTACKER_SUDO_PASS}' | sudo -S ip netns exec ${ATTACKER_NS} slowloris ${SLOWLORIS_TARGET} --port 80 \
+         --socket-count ${SLOWLORIS_SOCKETS} --sleeptime ${SLOWLORIS_SLEEP} \
+         > /tmp/slowloris.log 2>&1 & echo \$!" 2>/dev/null)
+
+    sleep 2
+    if [[ -z "$SLOWLORIS_PID" || ! "$SLOWLORIS_PID" =~ ^[0-9]+$ ]]; then
+        log "[ERROR] Không lấy được PID slowloris — kiểm tra /tmp/slowloris.log trên Attacker VM!"
+        return 1
+    fi
+    echo "$SLOWLORIS_PID" > "$ATTACKER_PID_FILE"
+    log "[OK] Slow Loris đang chạy trong $ATTACKER_NS (PID: $SLOWLORIS_PID, src: 10.10.1.11)"
 }
 
 stop_slowloris() {
     log "Dừng Slow Loris..."
-    # Thử SSH kill process
+    ssh -o ConnectTimeout=5 -o BatchMode=yes \
+        "${ATTACKER_USER}@${ATTACKER_IP}" \
+        "echo '${ATTACKER_SUDO_PASS}' | sudo -S pkill -9 -f slowloris 2>/dev/null; true" 2>/dev/null || true
+    sleep 2
     if ssh -o ConnectTimeout=5 -o BatchMode=yes \
             "${ATTACKER_USER}@${ATTACKER_IP}" \
-            "pkill -f slowloris || true" 2>/dev/null; then
-        log "[AUTO] Đã dừng Slow Loris trên Attacker VM."
+            "pgrep -f slowloris > /dev/null 2>&1 && echo RUNNING || echo STOPPED" 2>/dev/null | grep -q STOPPED; then
+        log "[OK] Slow Loris đã dừng trên Attacker VM."
     else
-        echo ""
-        echo "┌─────────────────────────────────────────────────────────┐"
-        echo "│  [MANUAL MODE] Dừng Slow Loris trên Attacker VM:        │"
-        echo "│  Nhấn Ctrl+C trong terminal đang chạy slowloris.         │"
-        echo "│  Sau đó nhấn Enter ở đây để tiếp tục.                   │"
-        echo "└─────────────────────────────────────────────────────────┘"
-        read -r -p ">> Nhấn Enter khi Slow Loris đã dừng: "
+        log "[WARN] Slow Loris có thể vẫn chạy — kiểm tra thủ công nếu cần."
     fi
     rm -f "$ATTACKER_PID_FILE"
 }
@@ -314,6 +325,35 @@ CSV_OUTPUT="$RESULTS_DIR/exp_1b_$(date +%Y%m%d_%H%M%S).csv"
 
 # Kiểm tra điều kiện
 check_prerequisites
+
+# Dọn process thừa từ các lần chạy trước — tránh nhiễm kết quả
+log "[CLEAN] Kiểm tra process thừa..."
+for proc in watcher.py feedback_loop_iptables.py; do
+    if pgrep -f "$proc" > /dev/null 2>&1; then
+        pkill -f "$proc" 2>/dev/null || true
+        log "[CLEAN][WARN] Đã kill process thừa: $proc"
+    else
+        log "[CLEAN][OK] Không có process thừa: $proc"
+    fi
+done
+
+# Xóa XDP rules thừa
+XDP_COUNT=$(curl -sf http://127.0.0.1:8080/rules 2>/dev/null | \
+    python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else 0)" 2>/dev/null || echo "?")
+if [[ "$XDP_COUNT" != "0" && "$XDP_COUNT" != "?" ]]; then
+    log "[CLEAN][WARN] Còn $XDP_COUNT XDP rule — đang xóa..."
+    curl -sf http://127.0.0.1:8080/rules 2>/dev/null | python3 -c "
+import sys,json,urllib.request
+rules=json.load(sys.stdin)
+for r in (rules if isinstance(rules,list) else []):
+    req=urllib.request.Request('http://127.0.0.1:8080/rules',json.dumps(r).encode(),{'Content-Type':'application/json'},'DELETE')
+    try: urllib.request.urlopen(req,timeout=3)
+    except: pass
+print(f'Xóa {len(rules)} rules.')
+" 2>/dev/null
+else
+    log "[CLEAN][OK] XDP sạch (0 rules)."
+fi
 
 echo ""
 echo "Cấu hình thực nghiệm:"

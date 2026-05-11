@@ -226,7 +226,7 @@ def get_iptables_drop_count():
     """
     try:
         result = subprocess.run(
-            ["iptables", "-nvL", "--line-numbers"],
+            ["iptables", "-nvL"],
             capture_output=True, text=True, timeout=2
         )
         total_drops = 0

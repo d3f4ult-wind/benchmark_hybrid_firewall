@@ -44,7 +44,7 @@ NGINX_TARGET = "http://10.10.2.2"
 
 # Interface mà XDP đang attach — tên card mạng cần chỉnh thủ công!
 # Ví dụ: "eth0", "enp0s3", "ens33" — tùy máy
-IFACE = "enp0s3"  # <-- SỬA LẠI ĐÚNG TÊN INTERFACE CỦA BẠN
+IFACE = "enp0s8"  # Interface XDP attach — mặt nhìn về Attacker VM
 
 # Timeout cho mỗi lần probe nginx (giây)
 # Nếu nginx không trả lời trong thời gian này, coi như legitimate user bị ảnh hưởng

@@ -7,7 +7,7 @@
 set -euo pipefail
 
 ATTACKER_IP="10.10.1.2"
-ATTACKER_USER="user"
+ATTACKER_USER="kali"
 FAKE_ATTACKER_IP="1.180.1.1"
 MONITOR_PID_FILE="/tmp/monitor_2.pid"
 ATTACKER_PID_FILE="/tmp/attacker_2.pid"

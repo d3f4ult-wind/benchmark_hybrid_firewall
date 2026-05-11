@@ -12,7 +12,7 @@ IFACE_ATTACKER="enp0s8"       # Interface hướng về Attacker
 IFACE_VICTIM="enp0s9"         # Interface hướng về Victim
 ATTACKER_IP="10.10.1.2"
 VICTIM_IP="10.10.2.2"
-ATTACKER_USER="user"
+ATTACKER_USER="kali"
 
 # IP giả mạo dùng trong benchmark — phải nằm trong dải GeoIP bị block (CN).
 # Đây là một IP public thuộc dải Trung Quốc, dễ nhớ, dùng nhất quán

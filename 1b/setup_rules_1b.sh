@@ -82,7 +82,7 @@ outputs:
 
 # Chỉ load rule file của dự án, không load emerging threats hay rule mặc định
 # (các rule đó có thể gây false positive và tăng CPU không cần thiết)
-default-rule-path: $RULES_DIR
+default-rule-path: /etc/suricata/rules
 rule-files:
   - slowloris.rules
 
@@ -131,7 +131,13 @@ echo "[+] Đã ghi $SURICATA_CONF"
 # ─────────────────────────────────────────
 echo "[*] Nạp rule Slow Loris..."
 mkdir -p "$RULES_DIR"
-cp "$SCRIPT_DIR/suricata_slowloris.rules" "$RULE_FILE"
+cat > "$RULE_FILE" << 'EOF'
+alert tcp any any -> $HOME_NET 80 (msg:"SLOWLORIS Excessive new connections to HTTP port"; flags:S; flow:to_server; threshold:type threshold,track by_src,count 20,seconds 10; sid:9000001; rev:1; classtype:attempted-dos;)
+
+alert tcp any any -> $HOME_NET 80 (msg:"SLOWLORIS Partial HTTP header detected"; flow:established,to_server; dsize:<50; threshold:type threshold,track by_src,count 10,seconds 30; sid:9000002; rev:1; classtype:attempted-dos;)
+
+alert tcp any any -> $HOME_NET 80 (msg:"SLOWLORIS Sustained connection flood"; flags:S; flow:to_server; threshold:type threshold,track by_src,count 30,seconds 60; sid:9000003; rev:1; classtype:attempted-dos;)
+EOF
 echo "[+] Rule file → $RULE_FILE"
 echo "    Số rule: $(grep -c '^alert' "$RULE_FILE")"
 

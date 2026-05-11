@@ -58,6 +58,7 @@ MEASURE_DURATION=60
 WRK_THREADS=4
 WRK_CONNECTIONS=10
 WRK_DURATION=30s
+WRK_DURATION_SECS=30              # Phải khớp với WRK_DURATION (bỏ hậu tố 's')
 WRK_TARGET="http://$VICTIM_IP/"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -109,10 +110,13 @@ stop_monitor() {
 }
 
 # Kiểm tra ns_50 có đang bị block không — điều kiện thành công bắt buộc
+# ns_50 nằm trên Attacker VM nên phải chạy qua SSH
 check_false_positive() {
     local round_name="$1"
-    # Chạy curl từ network namespace ns_50 để source IP là 10.10.1.50
-    if ip netns exec ns_50 curl -sf --max-time 5 "http://$VICTIM_IP/" > /dev/null 2>&1; then
+    if ssh -o ConnectTimeout=5 -o BatchMode=yes \
+            "${ATTACKER_USER}@${ATTACKER_IP}" \
+            "ip netns exec ns_50 curl -sf --max-time 5 http://$VICTIM_IP/ > /dev/null 2>&1" \
+            2>/dev/null; then
         log "[FP-CHECK] $round_name: ns_50 OK (không bị block nhầm). false_positive=0"
         echo "0"
     else
@@ -121,25 +125,20 @@ check_false_positive() {
     fi
 }
 
-# Đo latency p50/p95/p99 bằng wrk từ network namespace ns_50
+# Đo latency p50/p95/p99 bằng wrk từ network namespace ns_50 trên Attacker VM
+# ns_50 nằm trên Attacker VM — phải SSH sang để chạy wrk trong namespace đó
 run_wrk_from_ns50() {
     local label="$1"
-    log "  Đo latency bằng wrk (từ ns_50, $WRK_DURATION)..."
+    log "  Đo latency bằng wrk (từ ns_50 trên Attacker VM, $WRK_DURATION)..."
 
-    # wrk output ví dụ:
-    #   Latency   12.34ms  5.67ms  45.00ms   89.00%
-    #   Req/Sec   123.00   45.00  234.00    88.00%
-    #   Latency Distribution
-    #      50%   11.00ms
-    #      75%   14.00ms
-    #      90%   18.00ms
-    #      99%   45.00ms
-    WRK_OUTPUT=$(ip netns exec ns_50 wrk \
-        -t "$WRK_THREADS" \
-        -c "$WRK_CONNECTIONS" \
-        -d "$WRK_DURATION" \
-        --latency \
-        "$WRK_TARGET" 2>&1 || true)
+    WRK_OUTPUT=$(ssh -o ConnectTimeout=10 -o BatchMode=yes \
+        "${ATTACKER_USER}@${ATTACKER_IP}" \
+        "ip netns exec ns_50 wrk \
+            -t $WRK_THREADS \
+            -c $WRK_CONNECTIONS \
+            -d $WRK_DURATION \
+            --latency \
+            http://$VICTIM_IP/" 2>&1 || true)
 
     # Parse percentile từ output wrk
     P50=$(echo "$WRK_OUTPUT" | grep -E "^\s+50%" | awk '{print $2}' || echo "N/A")
@@ -229,7 +228,9 @@ log "Kiểm tra điều kiện tiên quyết..."
 curl -sf http://127.0.0.1:8080/health > /dev/null || { log "[ERROR] XDP API không phản hồi"; exit 1; }
 command -v wrk > /dev/null   || { log "[ERROR] wrk chưa cài. Chạy setup_rules_2.sh trước."; exit 1; }
 command -v ipset > /dev/null || { log "[ERROR] ipset chưa cài. Chạy setup_rules_2.sh trước."; exit 1; }
-ip netns list | grep -q "ns_50" || { log "[ERROR] Network namespace ns_50 không tồn tại!"; exit 1; }
+ssh -o ConnectTimeout=5 -o BatchMode=yes "${ATTACKER_USER}@${ATTACKER_IP}" \
+    "ip netns list | grep -q ns_50" 2>/dev/null || \
+    { log "[ERROR] Network namespace ns_50 không tồn tại trên Attacker VM (${ATTACKER_IP})!"; exit 1; }
 log "[OK] Tất cả điều kiện đã đủ."
 
 # ─────────────────────────────────────────
@@ -294,9 +295,7 @@ for LEVEL in "${RULESET_LEVELS[@]}"; do
     WRK_RESULT=$(run_wrk_from_ns50 "xdp_${LEVEL}")
     read -r P50_XDP P95_XDP P99_XDP REQSEC_XDP <<< "$WRK_RESULT"
 
-    # Đợi đủ thời gian đo cho monitor.py
-    REMAINING=$((MEASURE_DURATION - WRK_DURATION_SECS))
-    WRK_DURATION_SECS=$(echo "$WRK_DURATION" | sed 's/s//')
+    # Đợi đủ thời gian đo cho monitor.py (WRK_DURATION_SECS đã khai báo ở đầu file)
     REMAINING=$((MEASURE_DURATION - WRK_DURATION_SECS))
     if [[ $REMAINING -gt 0 ]]; then
         log "  Chờ thêm ${REMAINING}s cho monitor.py..."

@@ -195,6 +195,7 @@ def push_rules_to_xdp(cidrs: list, dry_run: bool) -> dict:
 # MAIN
 # -----------------------------------------------------------------------------
 def main():
+    global XDP_API_BASE # Khai báo global cho biến XDP_API_BASE
     parser = argparse.ArgumentParser(
         description="Nạp GeoIP CIDR vào XDP BPF Map — kịch bản 2"
     )
@@ -211,7 +212,7 @@ def main():
                         help="Parse và in ra nhưng không gọi API")
     args = parser.parse_args()
 
-    global XDP_API_BASE
+    
     XDP_API_BASE = args.xdp_api
 
     log("=" * 60)

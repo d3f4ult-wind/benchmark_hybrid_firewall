@@ -184,26 +184,38 @@ clear_xdp_rules() {
     local rules
     rules=$(curl -sf http://127.0.0.1:8080/rules 2>/dev/null || echo "[]")
     local count
-    count=$(echo "$rules" | python3 -c \
-        "import sys,json; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else len(d.get('rules',[])))" \
-        2>/dev/null || echo "0")
+    count=$(echo "$rules" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else len(d.get('rules',[])))" 2>/dev/null || echo "0")
+
     if [[ "$count" -gt 0 ]]; then
-        log "  Xóa $count XDP rules..."
-        echo "$rules" | python3 << 'EOF'
+        log "Đang xóa $count XDP rules..."
+        echo "$rules" | python3 -c '
 import sys, json, urllib.request
-rules = json.load(sys.stdin)
-if isinstance(rules, dict):
-    rules = rules.get("rules", [])
-for r in rules:
-    payload = json.dumps(r).encode()
-    req = urllib.request.Request(
-        "http://127.0.0.1:8080/rules",
-        data=payload, method="DELETE",
-        headers={"Content-Type": "application/json"}
-    )
-    try: urllib.request.urlopen(req, timeout=5)
-    except: pass
-EOF
+
+try:
+    rules = json.load(sys.stdin)
+    if isinstance(rules, dict):
+        rules = rules.get("rules", [])
+    
+    deleted_count = 0
+    for r in rules:
+        payload = json.dumps(r).encode()
+        req = urllib.request.Request(
+            "http://127.0.0.1:8080/rules",
+            data=payload, method="DELETE",
+            headers={"Content-Type": "application/json"}
+        )
+        try:
+            urllib.request.urlopen(req, timeout=5)
+            deleted_count += 1
+        except Exception as e:
+            print(f"  Lỗi xóa rule {r}: {e}")
+            
+    print(f"  Đã xóa {deleted_count} rules.")
+except Exception as e:
+    print(f"  [LỖI] Không thể phân tích JSON khi xóa rules: {e}")
+'
+    else
+        log "Không có XDP rule nào cần xóa."
     fi
 }
 

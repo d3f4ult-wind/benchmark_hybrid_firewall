@@ -63,17 +63,15 @@ def build_geoname_map(locations_path: str, country_code: str) -> set:
 # -----------------------------------------------------------------------------
 # BƯỚC 2: Lọc CIDR từ file Blocks theo geoname_id
 # -----------------------------------------------------------------------------
-def load_cidrs(blocks_path: str, geonames: set, limit: int) -> list:
+def load_cidrs(blocks_path: str, geonames: set) -> list:
     """
-    Đọc file Blocks, trả về danh sách CIDR (tối đa `limit` entries)
-    thuộc về các geoname_id đã lọc.
+    Đọc file Blocks, trả về danh sách toàn bộ CIDR
+    thuộc về các geoname_id đã lọc để chuẩn bị nạp.
     """
     cidrs = []
     with open(blocks_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            if len(cidrs) >= limit:
-                break
             gid = row.get("geoname_id", "").strip()
             if not gid:
                 # Một số dòng dùng registered_country_geoname_id thay thế
@@ -82,7 +80,7 @@ def load_cidrs(blocks_path: str, geonames: set, limit: int) -> list:
                 cidr = row.get("network", "").strip()
                 if cidr:
                     cidrs.append(cidr)
-    log(f"Đã lọc {len(cidrs)} CIDR (giới hạn {limit}).")
+    log(f"Đã lọc tổng cộng {len(cidrs)} CIDR từ file.")
     return cidrs
 
 # -----------------------------------------------------------------------------
@@ -143,15 +141,19 @@ def clear_all_rules(dry_run: bool):
 # Để tránh làm chậm quá trình nạp, script dùng batch logging: chỉ in tiến độ
 # mỗi 100 entries thay vì mỗi entry.
 # -----------------------------------------------------------------------------
-def push_rules_to_xdp(cidrs: list, dry_run: bool) -> dict:
+def push_rules_to_xdp(cidrs: list, limit: int, dry_run: bool) -> dict:
     """
-    Nạp từng CIDR vào BPF Map qua XDP API.
+    Nạp từng CIDR vào BPF Map qua XDP API cho đến khi đạt đủ `limit` thành công.
     Trả về dict chứa thống kê: tổng số call, thành công, thất bại, thời gian.
     """
-    stats = {"total": 0, "success": 0, "failed": 0, "elapsed_ms": 0}
+    stats = {"total": 0, "success": 0, "failed": 0, "elapsed_ms": 0, "cidrs_added": 0}
     t_start = time.time()
 
     for i, cidr in enumerate(cidrs):
+        if stats["cidrs_added"] >= limit:
+            break
+
+        cidr_success = True
         # TCP port 80 — vì exact-match, phải chỉ định port cụ thể
         for proto, port in [(6, 80), (1, 0)]:  # TCP port 80, ICMP port 0
             payload = json.dumps({
@@ -178,17 +180,28 @@ def push_rules_to_xdp(cidrs: list, dry_run: bool) -> dict:
                         stats["success"] += 1
                     else:
                         stats["failed"] += 1
+                        cidr_success = False
             except urllib.error.URLError as e:
                 stats["failed"] += 1
-                if stats["failed"] <= 5:  # chỉ log 5 lỗi đầu để tránh spam
-                    log(f"  [ERROR] {cidr} proto={proto}: {e}")
+                cidr_success = False
+                log(f"  [ERROR] {cidr} proto={proto}: {e}")
+
+        if dry_run:
+            cidr_success = True
+
+        if cidr_success:
+            stats["cidrs_added"] += 1
+        else:
+            log(f"  [WARN] Nạp CIDR {cidr} thất bại (XDP API lỗi). Bỏ qua và thử CIDR tiếp theo để đạt mục tiêu {limit}.")
 
         # In tiến độ mỗi 100 CIDR
-        if (i + 1) % 100 == 0 or (i + 1) == len(cidrs):
+        if stats["cidrs_added"] > 0 and stats["cidrs_added"] % 100 == 0 and cidr_success:
             elapsed = (time.time() - t_start) * 1000
-            log(f"  Tiến độ: {i+1}/{len(cidrs)} CIDR — {elapsed:.0f}ms đã trôi qua")
+            log(f"  Tiến độ: Đã nạp thành công {stats['cidrs_added']}/{limit} CIDR — {elapsed:.0f}ms đã trôi qua")
 
     stats["elapsed_ms"] = (time.time() - t_start) * 1000
+    if stats["cidrs_added"] < limit:
+        log(f"  [LỖI NGHIÊM TRỌNG] Đã thử hết danh sách nhưng chỉ nạp thành công {stats['cidrs_added']}/{limit} CIDR!")
     return stats
 
 # -----------------------------------------------------------------------------
@@ -233,7 +246,7 @@ def main():
         log(f"[ERROR] Không tìm thấy geoname_id nào cho '{args.country}'. Kiểm tra file locations.")
         sys.exit(1)
 
-    cidrs = load_cidrs(args.blocks, geonames, args.limit)
+    cidrs = load_cidrs(args.blocks, geonames)
     if not cidrs:
         log("[ERROR] Không lọc được CIDR nào. Kiểm tra file blocks và country code.")
         sys.exit(1)
@@ -246,18 +259,20 @@ def main():
     if args.clear_first:
         clear_all_rules(args.dry_run)
 
-    log(f"Bắt đầu nạp {len(cidrs)} CIDR vào XDP BPF Map...")
-    stats = push_rules_to_xdp(cidrs, args.dry_run)
+    log(f"Bắt đầu nạp (Mục tiêu: {args.limit} CIDR thành công) vào XDP BPF Map...")
+    stats = push_rules_to_xdp(cidrs, args.limit, args.dry_run)
 
     log("")
     log("─" * 60)
     log(f"KẾT QUẢ NẠP:")
-    log(f"  CIDR đã xử lý:   {len(cidrs)}")
+    log(f"  Mục tiêu đề ra:  {args.limit} CIDR")
+    log(f"  CIDR thành công: {stats['cidrs_added']}")
     log(f"  API calls tổng:  {stats['total']} (mỗi CIDR = 2 calls: TCP+ICMP)")
     log(f"  Thành công:      {stats['success']}")
     log(f"  Thất bại:        {stats['failed']}")
     log(f"  Thời gian nạp:   {stats['elapsed_ms']:.0f} ms")
-    log(f"  Tốc độ nạp:      {len(cidrs) / (stats['elapsed_ms']/1000):.1f} CIDR/s")
+    if stats['elapsed_ms'] > 0:
+        log(f"  Tốc độ nạp:      {stats['cidrs_added'] / (stats['elapsed_ms']/1000):.1f} CIDR/s")
     if args.dry_run:
         log("  (DRY-RUN — không có rule nào thực sự được nạp)")
     log("─" * 60)

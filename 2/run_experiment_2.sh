@@ -152,31 +152,25 @@ run_wrk_from_ns50() {
 
 # Bắt đầu SYN flood từ Attacker VM với IP giả mạo (SNAT đã setup)
 start_attacker() {
-    log "  Bắt đầu SYN flood từ Attacker VM (source IP giả mạo: $FAKE_ATTACKER_IP)..."
-    if ssh -o ConnectTimeout=5 -o BatchMode=yes \
-            "${ATTACKER_USER}@${ATTACKER_IP}" \
-            "nohup hping3 -S -p 80 --flood $VICTIM_IP > /tmp/hping3_geo.log 2>&1 & echo \$!" \
-            > "$ATTACKER_PID_FILE" 2>/dev/null; then
-        log "  [AUTO] Attacker đang flood (PID: $(cat "$ATTACKER_PID_FILE" 2>/dev/null || echo '?'))"
-    else
-        echo ""
-        echo "  ┌──────────────────────────────────────────────────────┐"
-        echo "  │ [MANUAL] Trên Attacker VM, chạy lệnh sau:            │"
-        echo "  │   sudo hping3 -S -p 80 --flood $VICTIM_IP            │"
-        echo "  │ (SNAT đã setup sẽ tự đổi source → $FAKE_ATTACKER_IP) │"
-        echo "  │ Nhấn Enter ở đây khi lệnh đã chạy.                   │"
-        echo "  └──────────────────────────────────────────────────────┘"
-        read -r -p "  >> Nhấn Enter: "
-    fi
+    echo ""
+    echo "  ┌──────────────────────────────────────────────────────┐"
+    echo "  │ [MANUAL] Bắt đầu SYN flood từ Attacker VM            │"
+    echo "  │ Trên Attacker VM, hãy chạy lệnh sau:                 │"
+    echo "  │   sudo hping3 -S -p 80 --flood $VICTIM_IP            │"
+    echo "  │ (SNAT đã setup sẽ tự đổi source → $FAKE_ATTACKER_IP) │"
+    echo "  │ Nhấn Enter ở đây SAU KHI lệnh đã chạy thành công.    │"
+    echo "  └──────────────────────────────────────────────────────┘"
+    read -r -p "  >> Nhấn Enter: "
 }
 
 stop_attacker() {
-    ssh -o ConnectTimeout=5 -o BatchMode=yes \
-        "${ATTACKER_USER}@${ATTACKER_IP}" \
-        "pkill -f hping3 || true" 2>/dev/null || {
-        echo "  [MANUAL] Dừng hping3 trên Attacker VM rồi nhấn Enter."
-        read -r -p "  >> Nhấn Enter: "
-    }
+    echo ""
+    echo "  ┌──────────────────────────────────────────────────────┐"
+    echo "  │ [MANUAL] Hãy dừng hping3 trên Attacker VM!           │"
+    echo "  │ (Nhấn Ctrl+C ở terminal Attacker hoặc chạy lệnh:)    │"
+    echo "  │   sudo pkill -9 -f hping3                            │"
+    echo "  └──────────────────────────────────────────────────────┘"
+    read -r -p "  >> Nhấn Enter để xác nhận đã dừng tấn công: "
     rm -f "$ATTACKER_PID_FILE"
 }
 

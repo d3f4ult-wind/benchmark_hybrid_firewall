@@ -137,7 +137,7 @@ start_monitor() {
     python3 "$SCRIPT_DIR/../monitor.py" \
         --phase "$phase" \
         --output "$output" \
-        $append_flag &
+        $append_flag > /tmp/monitor_exp.log 2>&1 &
     echo $! > "$MONITOR_PID_FILE"
     sleep 1
 }
@@ -360,6 +360,12 @@ echo "Cấu hình thực nghiệm:"
 echo "  Thời gian mỗi phase: baseline=${DURATION_BASELINE}s, no_feedback=${DURATION_NO_FEEDBACK}s, full_stack=${DURATION_FULL_STACK}s"
 echo "  Slow Loris: ${SLOWLORIS_SOCKETS} sockets, sleep=${SLOWLORIS_SLEEP}s"
 echo "  Output CSV: $CSV_OUTPUT"
+echo ""
+echo "=========================================================="
+echo " MẸO: Để xem thông số CPU/Latency realtime từ monitor.py,"
+echo " hãy mở thêm 1 terminal SSH vào Firewall VM và chạy lệnh:"
+echo "     tail -f /tmp/monitor_exp.log"
+echo "=========================================================="
 echo ""
 read -r -p "Nhấn Enter để bắt đầu (Ctrl+C để hủy)..."
 

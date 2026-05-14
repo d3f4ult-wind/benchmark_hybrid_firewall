@@ -56,7 +56,7 @@ log() { echo "[$(date '+%H:%M:%S')] $*"; }
 start_monitor() {
     local phase="$1" output="$2" append="${3:-}"
     python3 "$SCRIPT_DIR/../monitor.py" \
-        --phase "$phase" --output "$output" $append &
+        --phase "$phase" --output "$output" $append > /tmp/monitor_exp.log 2>&1 &
     echo $! > "$MONITOR_PID_FILE"
     sleep 1
 }
@@ -217,6 +217,11 @@ echo " Ruleset levels: ${RULESET_LEVELS[*]}"
 echo " Thời gian đo mỗi round: ${MEASURE_DURATION}s"
 echo " Output: $SUMMARY_CSV"
 echo "============================================================"
+echo " MẸO: Để xem thông số CPU/Latency realtime từ monitor.py,"
+echo " hãy mở thêm 1 terminal SSH vào Firewall VM và chạy lệnh:"
+echo "     tail -f /tmp/monitor_exp.log"
+echo "============================================================"
+echo ""
 read -r -p "Nhấn Enter để bắt đầu (Ctrl+C để hủy)..."
 
 for LEVEL in "${RULESET_LEVELS[@]}"; do
@@ -242,8 +247,8 @@ for LEVEL in "${RULESET_LEVELS[@]}"; do
 
     FP_XDP=$(check_false_positive "xdp_${LEVEL}")
 
-    start_monitor "xdp_${LEVEL}" "$DETAIL_CSV" "--append"
     start_attacker
+    start_monitor "xdp_${LEVEL}" "$DETAIL_CSV" "--append"
 
     log "  Flood đang chạy, đồng thời đo wrk latency từ ns_50..."
     WRK_RESULT=$(run_wrk_from_ns50 "xdp_${LEVEL}")
@@ -255,8 +260,8 @@ for LEVEL in "${RULESET_LEVELS[@]}"; do
         sleep "$REMAINING"
     fi
 
-    stop_attacker
     stop_monitor
+    stop_attacker
 
     CPU_XDP=$(python3 << PYEOF
 import csv
@@ -289,8 +294,8 @@ PYEOF
 
     FP_IPT=$(check_false_positive "iptables_${LEVEL}")
 
-    start_monitor "iptables_${LEVEL}" "$DETAIL_CSV" "--append"
     start_attacker
+    start_monitor "iptables_${LEVEL}" "$DETAIL_CSV" "--append"
 
     log "  Flood đang chạy, đồng thời đo wrk latency từ ns_50..."
     WRK_RESULT=$(run_wrk_from_ns50 "iptables_${LEVEL}")
@@ -302,8 +307,8 @@ PYEOF
         sleep "$REMAINING"
     fi
 
-    stop_attacker
     stop_monitor
+    stop_attacker
 
     CPU_IPT=$(python3 << PYEOF
 import csv

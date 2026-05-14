@@ -210,6 +210,12 @@ log "Phase duration: ${PHASE_DURATION}s | Cooldown: ${COOLDOWN}s"
 log "Attacker    : $ATTACKER_IP (user: $ATTACKER_SSH_USER)"
 log "Victim      : $VICTIM_IP:$VICTIM_PORT"
 log ""
+log "=========================================================="
+log "MẸO: Để xem thông số CPU/Latency realtime từ monitor.py,"
+log "hãy mở thêm 1 terminal SSH vào Firewall VM và chạy lệnh:"
+log "    tail -f /tmp/monitor_exp.log"
+log "=========================================================="
+log ""
 
 # Kiểm tra XDP Core
 log "[CHECK] Kiểm tra XDP Core API..."
@@ -275,7 +281,7 @@ log "Không có tấn công. Chỉ legitimate traffic từ ns_50."
 log "Đang bắt đầu monitor.py cho Phase 1..."
 
 # Chạy monitor.py ở background, ghi vào CSV mới
-python3 "$MONITOR_SCRIPT" --phase baseline --output "$OUTPUT_CSV" &
+python3 "$MONITOR_SCRIPT" --phase baseline --output "$OUTPUT_CSV" > /tmp/monitor_exp.log 2>&1 &
 MONITOR_PID=$!
 log "monitor.py PID: $MONITOR_PID"
 
@@ -309,7 +315,7 @@ fi
 
 # Monitor Phase 2 — append vào cùng CSV
 sleep 2  # Đợi traffic ổn định
-python3 "$MONITOR_SCRIPT" --phase iptables_only --output "$OUTPUT_CSV" --append &
+python3 "$MONITOR_SCRIPT" --phase iptables_only --output "$OUTPUT_CSV" --append > /tmp/monitor_exp.log 2>&1 &
 MONITOR_PID=$!
 
 sleep "$PHASE_DURATION"
@@ -354,7 +360,7 @@ fi
 
 # Monitor Phase 3 — append vào CSV
 sleep 2
-python3 "$MONITOR_SCRIPT" --phase feedback_loop --output "$OUTPUT_CSV" --append &
+python3 "$MONITOR_SCRIPT" --phase feedback_loop --output "$OUTPUT_CSV" --append > /tmp/monitor_exp.log 2>&1 &
 MONITOR_PID=$!
 
 sleep "$PHASE_DURATION"
